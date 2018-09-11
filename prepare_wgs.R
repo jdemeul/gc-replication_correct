@@ -315,7 +315,8 @@ gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile
                          replic = replic_data[, "timing", drop = T],
                          OLD_GC_short = GC_data[,maxGCcol_short, drop = T], # remove when done with comparison
                          OLD_GC_long = GC_data[,maxGCcol_long, drop = T]) # remove when done with comparison
-  model = lm(logr ~ GC_insert + I(GC_insert)^2 + GC_amplic + I(GC_amplic^2) + replic + I(replic^2), y=F, model = F, data = corrdata, na.action="na.exclude")
+  # model = lm(logr ~ GC_insert + I(GC_insert)^2 + GC_amplic + I(GC_amplic^2) + replic + I(replic^2), y=F, model = F, data = corrdata, na.action="na.exclude")
+  model = lm(logr ~ ns(x = GC_insert, df = 5, intercept = T) + ns(x = GC_amplic, df = 5, intercept = T) + ns(x = replic, df = 5, intercept = T), y=F, model = F, data = corrdata, na.action="na.exclude")
   
   Tumor_LogR[,3] = residuals(model)
   rm(model)
@@ -344,7 +345,7 @@ gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile
     
     ### start old correction comparison
     OLD_corr = abs(cor(GC_data[, 3:ncol(GC_data)], oldcorrection, use="complete.obs")[,1])
-    OLD_corr_rep = abs(cor(replic_data$timing, oldcorrection, use="complete.obs")[,1])
+    OLD_corr_rep = abs(cor(replic_data$timing, oldcorrection, use="complete.obs"))
     
     cat("Replication timing correlation post OLD correction: ",format(OLD_corr_rep,digits=2),"\n")  
     cat("GC correlation post OLD correction: ",paste(names(OLD_corr),format(OLD_corr,digits=2), ";"),"\n")

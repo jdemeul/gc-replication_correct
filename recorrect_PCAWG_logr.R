@@ -52,15 +52,15 @@ get_gcCorrected_logr <- function(tumor_wgs_aliquot_id) {
     return(NULL)
   }
   
-  post_correction_file <- paste0(TUMOURNAME, "_GCwindowCorrelations_afterCorrection.txt")
-  if (file.exists(post_correction_file)) {
-    post_correction <- read.delim(file = post_correction_file, as.is = T)
-    if (any(post_correction$windowsize == "replication")) {
-      return(NULL)
-    }
-  } else {
-    return(NULL)
-  }
+  # post_correction_file <- paste0(TUMOURNAME, "_GCwindowCorrelations_afterCorrection.txt")
+  # if (file.exists(post_correction_file)) {
+  #   post_correction <- read.delim(file = post_correction_file, as.is = T)
+  #   if (any(post_correction$windowsize == "replication")) {
+  #     return(NULL)
+  #   }
+  # } else {
+  #   return(NULL)
+  # }
     
   # Perform GC correction
   gc.replic.correct.wgs(Tumour_LogR_file=paste(TUMOURNAME,"_mutantLogR.tab", sep=""),
@@ -78,12 +78,13 @@ get_gcCorrected_logr <- function(tumor_wgs_aliquot_id) {
 
 
 
-# debug(get_baf_gcCorrected_logr)
+# debug(get_gcCorrected_logr)
+# undebug(gc.replic.correct.wgs)
 
-# get_baf_gcCorrected_logr(sampleid = "00c27940-c623-11e3-bf01-24c6515278c0")
+# get_gcCorrected_logr(tumor_wgs_aliquot_id = "00c27940-c623-11e3-bf01-24c6515278c0")
 
-gccorr <- slurm_apply(f = get_gcCorrected_logr, params = releasetable[,"tumor_wgs_aliquot_id", drop = F], jobname = "GCREcorr2", nodes = 14, cpus_per_node = 1, add_objects = ls(),
+gccorr <- slurm_apply(f = get_gcCorrected_logr, params = releasetable[,"tumor_wgs_aliquot_id", drop = F], jobname = "comp_GCcorr", nodes = 14, cpus_per_node = 1, add_objects = ls(),
                       pkgs = rev(.packages()), libPaths = .libPaths(), slurm_options = list(), submit = T)
 # print_job_status(gccorr)
-# cancel_slurm(gccorr)
+cancel_slurm(gccorr)
 
