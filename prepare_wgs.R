@@ -259,10 +259,10 @@ gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile
     chrom_idx <- 1:length(chrom_names)
     gc_files <- paste0(gc_content_file_prefix, chrom_idx, ".txt.gz")
     # warnings are known bug in current R/readr version when skipping columns, data is fine though
-    GC_data <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "-cinnnnnnnnnnnn------"))
+    GC_data <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "-cinnnnnnnnnnnnnnnnnn"))
     colnames(GC_data) <- c("chr", "Position", paste0(c(25,50,100,200,500), "bp"),
-                           paste0(c(1,2,5,10,20,50,100), "kb"))
-    # paste0(c(1,2,5,10), "Mb"))
+                           paste0(c(1,2,5,10,20,50,100,200,500), "kb"),
+                           paste0(c(1,2,5,10), "Mb"))
   } else {
     GC_data <- gc_content_df
     rm(gc_content_df)
@@ -299,16 +299,33 @@ gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile
   cat("GC correlation: ",paste(names(corr),format(corr,digits=2), ";"),"\n")   
   cat("Short window size: ",maxGCcol_insert,"\n")
   cat("Long window size: ",maxGCcol_amplic,"\n")
+
+  ### start old correction comparison
+  index_500kb = which(names(corr)=="500kb")
+  maxGCcol_short = names(which.max(corr[1:index_500kb]))
+  maxGCcol_long = names(which.max(corr[(index_500kb+1):length(corr)]))
+  cat("OLD Short window size: ",maxGCcol_short,"\n")
+  cat("OLD Long window size: ",maxGCcol_long,"\n")
+  ### end old correction comparison
   
   # Multiple regression 
   corrdata <- data.frame(logr = Tumor_LogR[,3, drop = T],
                          GC_insert = GC_data[,maxGCcol_insert, drop = T],
                          GC_amplic = GC_data[,maxGCcol_amplic, drop = T],
-                         replic = replic_data[, "timing", drop = T])
+                         replic = replic_data[, "timing", drop = T],
+                         OLD_GC_short = GC_data[,maxGCcol_short, drop = T], # remove when done with comparison
+                         OLD_GC_long = GC_data[,maxGCcol_long, drop = T]) # remove when done with comparison
   model = lm(logr ~ GC_insert + I(GC_insert)^2 + GC_amplic + I(GC_amplic^2) + replic + I(replic^2), y=F, model = F, data = corrdata, na.action="na.exclude")
   
   Tumor_LogR[,3] = residuals(model)
-  rm(model, corrdata)
+  rm(model)
+
+  ### start old correction comparison
+  oldmodel = lm(logr ~ OLD_GC_short + I(OLD_GC_short)^2 + OLD_GC_long + I(OLD_GC_long^2), y=F, model = F, data = corrdata, na.action="na.exclude")
+
+  oldcorrection = residuals(oldmodel)
+  rm(oldmodel, corrdata)
+  ### end old correction comparison
   
   corr = data.frame(windowsize=c(names(corr), "replication"), correlation=c(corr, corr_rep))
   write.table(corr, file=gsub(".txt", "_beforeCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
@@ -321,9 +338,21 @@ gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile
     
     cat("Replication timing correlation post correction: ",format(corr_rep,digits=2),"\n")  
     cat("GC correlation post correction: ",paste(names(corr),format(corr,digits=2), ";"),"\n")   
-
+    
     corr = data.frame(windowsize=c(names(corr), "replication"), correlation=c(corr, corr_rep))
     write.table(corr, file=gsub(".txt", "_afterCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
+    
+    ### start old correction comparison
+    OLD_corr = abs(cor(GC_data[, 3:ncol(GC_data)], oldcorrection, use="complete.obs")[,1])
+    OLD_corr_rep = abs(cor(replic_data$timing, oldcorrection, use="complete.obs")[,1])
+    
+    cat("Replication timing correlation post OLD correction: ",format(OLD_corr_rep,digits=2),"\n")  
+    cat("GC correlation post OLD correction: ",paste(names(OLD_corr),format(OLD_corr,digits=2), ";"),"\n")
+    
+    corr = data.frame(windowsize=c(names(OLD_corr), "replication"), correlation=c(OLD_corr, OLD_corr_rep))
+    write.table(corr, file=gsub(".txt", "_afterOldCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
+    ### end old correction comparison
+
   } else {
     corr$correlation = NA
     write.table(corr, file=gsub(".txt", "_afterCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
