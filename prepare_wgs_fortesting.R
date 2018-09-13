@@ -246,28 +246,35 @@ generate.impute.input.wgs = function(chrom, tumour.allele.counts.file, normal.al
 #' @param replic_timing_file_prefix Like the gc_content_file_prefix, containing replication timing info
 #' @param chrom_names A vector containing chromosome names to be considered
 #' @param recalc_corr_afterwards Set to TRUE to recalculate correlations with GC content after correction
-#' @param GC_data Dataframe containing GC content data, if !NULL avoids it being read from disk
-#' @param replic_data Dataframe containing replication timing data, if !NULL avoids it being read from disk
-#' @author jonas demeulemeester, sd11
+#' @param gc_content_df Dataframe containing GC content data, if !NULL avoids it being read from disk
+#' @param replic_timing_df Dataframe containing replication timing data, if !NULL avoids it being read from disk
+#' @author sd11
 #' @export
-gc.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile, gc_content_file_prefix, replic_timing_file_prefix, chrom_names, recalc_corr_afterwards=F, GC_data = NULL, replic_data = NULL) {
-  
+gc.replic.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile, gc_content_file_prefix, replic_timing_file_prefix, chrom_names, recalc_corr_afterwards=F, gc_content_df = NULL, replic_timing_df = NULL) {
+
   Tumor_LogR = readr::read_tsv(file = Tumour_LogR_file, col_names = T, col_types = "cin")
   
-  if (is.null(GC_data)) {
+  if (is.null(gc_content_df)) {
     print("Processing GC content data")
     chrom_idx <- 1:length(chrom_names)
-    gc_files <- paste0(gc_content_file_prefix, chrom_idx, ".txt")
-    GC_data <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "icinnnnnnnnnnnnnnnnnn"))[, -1]
+    gc_files <- paste0(gc_content_file_prefix, chrom_idx, ".txt.gz")
+    # warnings are known bug in current R/readr version when skipping columns, data is fine though
+    GC_data <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "-cinnnnnnnnnnnnnnnnnn"))
     colnames(GC_data) <- c("chr", "Position", paste0(c(25,50,100,200,500), "bp"),
                            paste0(c(1,2,5,10,20,50,100,200,500), "kb"),
                            paste0(c(1,2,5,10), "Mb"))
+  } else {
+    GC_data <- gc_content_df
+    rm(gc_content_df)
   }
   
-  if (is.null(replic_data)) {
+  if (is.null(replic_timing_df)) {
     print("Processing replciation timing data")
-    replic_files <- paste0(replic_timing_file_prefix, chrom_idx, ".txt")
+    replic_files <- paste0(replic_timing_file_prefix, chrom_idx, ".txt.gz")
     replic_data <- do.call(rbind, lapply(replic_files, readr::read_tsv, col_types = paste0("ci", paste0(rep("n", 15), collapse = ""))))
+  } else {
+    replic_data <- replic_timing_df
+    rm(replic_timing_df)
   }
   
   # omit non-matching loci, replication data generated at exactly same GC loci
@@ -283,9 +290,11 @@ gc.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile, gc_co
   
   index_1kb = which(names(corr)=="1kb")
   maxGCcol_insert = names(which.max(corr[1:index_1kb]))
+  
   index_100kb = which(names(corr)=="100kb")
   # start large window sizes at 5kb rather than 2kb to avoid overly correlated expl variables
   maxGCcol_amplic = names(which.max(corr[(index_1kb+2):index_100kb]))
+  
   maxreplic = names(which.max(corr_rep))
   
   cat("Replication timing correlation: ",paste(names(corr_rep),format(corr_rep,digits=2), ";"),"\n") 
@@ -293,20 +302,34 @@ gc.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile, gc_co
   cat("GC correlation: ",paste(names(corr),format(corr,digits=2), ";"),"\n")   
   cat("Short window size: ",maxGCcol_insert,"\n")
   cat("Long window size: ",maxGCcol_amplic,"\n")
+
+  ### start old correction comparison
+  index_500kb = which(names(corr)=="500kb")
+  maxGCcol_short = names(which.max(corr[1:index_500kb]))
+  maxGCcol_long = names(which.max(corr[(index_500kb+1):length(corr)]))
+  cat("OLD Short window size: ",maxGCcol_short,"\n")
+  cat("OLD Long window size: ",maxGCcol_long,"\n")
+  ### end old correction comparison
   
   # Multiple regression 
   corrdata <- data.frame(logr = Tumor_LogR[,3, drop = T],
                          GC_insert = GC_data[,maxGCcol_insert, drop = T],
                          GC_amplic = GC_data[,maxGCcol_amplic, drop = T],
-                         replic = replic_data[, maxreplic, drop = T])
-  
-  if (!recalc_corr_afterwards)
-    rm(GC_data, replic_data)
-  
+                         replic = replic_data[, maxreplic, drop = T],
+                         OLD_GC_short = GC_data[,maxGCcol_short, drop = T], # remove when done with comparison
+                         OLD_GC_long = GC_data[,maxGCcol_long, drop = T]) # remove when done with comparison
+  # model = lm(logr ~ GC_insert + I(GC_insert)^2 + GC_amplic + I(GC_amplic^2) + replic + I(replic^2), y=F, model = F, data = corrdata, na.action="na.exclude")
   model = lm(logr ~ splines::ns(x = GC_insert, df = 5, intercept = T) + splines::ns(x = GC_amplic, df = 5, intercept = T) + splines::ns(x = replic, df = 5, intercept = T), y=F, model = F, data = corrdata, na.action="na.exclude")
   
   Tumor_LogR[,3] = residuals(model)
-  rm(model, corrdata)
+  rm(model)
+
+  ### start old correction comparison
+  oldmodel = lm(logr ~ OLD_GC_short + I(OLD_GC_short)^2 + OLD_GC_long + I(OLD_GC_long^2), y=F, model = F, data = corrdata, na.action="na.exclude")
+
+  oldcorrection = residuals(oldmodel)
+  rm(oldmodel, corrdata)
+  ### end old correction comparison
   
   corr = data.frame(windowsize=c(names(corr), names(corr_rep)), correlation=c(corr, corr_rep))
   write.table(corr, file=gsub(".txt", "_beforeCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
@@ -323,6 +346,17 @@ gc.correct.wgs = function(Tumour_LogR_file, outfile, correlations_outfile, gc_co
     corr = data.frame(windowsize=c(names(corr), names(corr_rep)), correlation=c(corr, corr_rep))
     write.table(corr, file=gsub(".txt", "_afterCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
     
+    ### start old correction comparison
+    OLD_corr = abs(cor(GC_data[, 3:ncol(GC_data)], oldcorrection, use="complete.obs")[,1])
+    OLD_corr_rep = abs(cor(replic_data[, 3:ncol(replic_data)], oldcorrection, use="complete.obs")[,1])
+    
+    cat("Replication timing correlation post OLD correction: ",paste(names(OLD_corr_rep),format(OLD_corr_rep,digits=2), ";"),"\n") 
+    cat("GC correlation post OLD correction: ",paste(names(OLD_corr),format(OLD_corr,digits=2), ";"),"\n")
+    
+    corr = data.frame(windowsize=c(names(OLD_corr), names(OLD_corr_rep)), correlation=c(OLD_corr, OLD_corr_rep))
+    write.table(corr, file=gsub(".txt", "_afterOldCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)
+    ### end old correction comparison
+
   } else {
     corr$correlation = NA
     write.table(corr, file=gsub(".txt", "_afterCorrection.txt", correlations_outfile), sep="\t", quote=F, row.names=F)

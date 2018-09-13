@@ -10,8 +10,8 @@ wavelets <- lapply(waveletfiles, import.bw)
 # lapply(wavelets, length)
 
 ## start on final df and average scores
-avg_wave <- wavelets[[1]]
-mcols(avg_wave)$score <- colMeans(do.call(what = rbind, args = lapply(X = wavelets, FUN = function(x) mcols(x)$score)))
+# avg_wave <- wavelets[[1]]
+# mcols(avg_wave)$score <- colMeans(do.call(what = rbind, args = lapply(X = wavelets, FUN = function(x) mcols(x)$score)))
 
 
 ## read loci files used in Battenberg and turn into GRanges
@@ -31,12 +31,19 @@ mcols(loci_gr)$score <- mcols(avg_wave)[nearest(x = loci_gr, subject = avg_wave,
 # loci_gr[which(mcols(loci_gr)$score < 0)]
 # loci_gr[20950915:20950925]
 
+###### new, do not average wave but let correlation decide
+wave1 <- wavelets[[1]]
+seqlevelsStyle(wave1) <- "Ensembl"
+nearestidxs <- nearest(x = loci_gr, subject = wave1, select = "arbitrary")
+mcols(loci_gr) <- do.call(cbind, lapply(X = wavelets, FUN = function(x) mcols(x)[nearestidxs, "score"]))
+colnames(mcols(loci_gr)) <- sub(pattern = "^wgEncodeUwRepliSeq", replacement = "", x = sub(pattern = "WaveSignalRep1.bigWig", replacement = "", x = basename(waveletfiles)))
+
+###### 
 
 ## write out correction files
-loci_gr_split <- split(x = loci_gr, f = seqnames(loci_gr))
-lapply(loci_gr_split, FUN = function(x) {
+lapply(split(x = loci_gr, f = seqnames(loci_gr)), FUN = function(x) {
   write_tsv(path = paste0("/srv/shared/vanloo/pipeline-files/human/references/1000genomes/1000genomes_2012_v3_repliTiming/1000_genomes_replication_timing_chr_", seqnames(x[1]), ".txt"),
-            x = data.frame(chr = seqnames(x), pos = start(x), timing = mcols(x)$score))
+            x = data.frame(chr = seqnames(x), pos = start(x), mcols(x)))
   return(NULL)
   })
 

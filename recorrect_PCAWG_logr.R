@@ -1,5 +1,6 @@
 ## use Battenberg to get GC-corrected LogR data
 library(readr)
+library(splines)
 library(rslurm)
 
 RELEASETABLEFILE <- "/srv/shared/vanloo/ICGC_annotations/release_may2016.v1.4.tsv"
@@ -19,14 +20,15 @@ releasetable <- read_pcawg_release_table(release_table_file = RELEASETABLEFILE)
 ### read GC content and replication timing data just once
 read_gc_content_replic_timing <- function(gc_content_file_prefix, replic_timing_file_prefix, chrom_names) {
   chrom_idx <- 1:length(chrom_names)
-  gc_files <- paste0(gc_content_file_prefix, chrom_idx, ".txt.gz")
-  gc_content_df <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "-cinnnnnnnnnnnnnnnnnn"))
+  gc_files <- paste0(gc_content_file_prefix, chrom_idx, ".txt")
+  gc_content_df <- do.call(rbind, lapply(gc_files, readr::read_tsv, skip = 1, col_names = F, col_types = "icinnnnnnnnnnnnnnnnnn"))[, -1]
   colnames(gc_content_df) <- c("chr", "Position", paste0(c(25,50,100,200,500), "bp"),
                                paste0(c(1,2,5,10,20,50,100,200,500), "kb"),
                                paste0(c(1,2,5,10), "Mb"))
   
-  replic_files <- paste0(replic_timing_file_prefix, chrom_idx, ".txt.gz")
-  replic_timing_df <- do.call(rbind, lapply(replic_files, readr::read_tsv, col_types = "cin"))
+  replic_files <- paste0(replic_timing_file_prefix, chrom_idx, ".txt")
+  replic_timing_df <- do.call(rbind, lapply(replic_files, readr::read_tsv, col_types = paste0("ci", paste0(rep("n", 15), collapse = ""))))
+  
   return(list(gc = gc_content_df, rep = replic_timing_df))
 }
 
@@ -63,15 +65,15 @@ get_gcCorrected_logr <- function(tumor_wgs_aliquot_id) {
   # }
     
   # Perform GC correction
-  gc.replic.correct.wgs(Tumour_LogR_file=paste(TUMOURNAME,"_mutantLogR.tab", sep=""),
+  gc.correct.wgs(Tumour_LogR_file=paste(TUMOURNAME,"_mutantLogR.tab", sep=""),
                         outfile=paste(TUMOURNAME,"_mutantLogR_gcCorrected.tab", sep=""),
                         correlations_outfile=paste(TUMOURNAME, "_GCwindowCorrelations.txt", sep=""),
                         gc_content_file_prefix=NULL,
                         replic_timing_file_prefix=NULL,
                         recalc_corr_afterwards = T,
                         chrom_names=chrom_names, 
-                        gc_content_df=correctiondata$gc,
-                        replic_timing_df=correctiondata$rep)
+                        GC_data=correctiondata$gc,
+                        replic_data=correctiondata$rep)
   
   return(NULL)
 }
@@ -79,12 +81,12 @@ get_gcCorrected_logr <- function(tumor_wgs_aliquot_id) {
 
 
 # debug(get_gcCorrected_logr)
-# undebug(gc.replic.correct.wgs)
+# undebug(gc.correct.wgs)
 
 # get_gcCorrected_logr(tumor_wgs_aliquot_id = "00c27940-c623-11e3-bf01-24c6515278c0")
 
 gccorr <- slurm_apply(f = get_gcCorrected_logr, params = releasetable[,"tumor_wgs_aliquot_id", drop = F], jobname = "comp_GCcorr", nodes = 14, cpus_per_node = 1, add_objects = ls(),
                       pkgs = rev(.packages()), libPaths = .libPaths(), slurm_options = list(), submit = T)
 # print_job_status(gccorr)
-cancel_slurm(gccorr)
+# cancel_slurm(gccorr)
 
